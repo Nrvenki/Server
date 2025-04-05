@@ -358,18 +358,119 @@
 #     app.run(host='0.0.0.0', port=8000, debug=True)
 
 
-from flask import Flask, request
+import pickle as pkl
+import os
+import pandas as pd
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import logging
 
-app = Flask(__name__)
+# Set up logging
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allow all origins for simplicity
+
+# Load scaler and model
+script_dir = os.path.dirname(os.path.abspath(__file__))
+scaler_path = os.path.join(script_dir, 'scaler.pkl')
+model_path = os.path.join(script_dir, 'bagging.pkl')
+
+# Check if files exist and load them
+try:
+    if not os.path.exists(scaler_path):
+        raise FileNotFoundError(f"Scaler file not found at {scaler_path}")
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found at {model_path}")
+
+    with open(scaler_path, 'rb') as scaler_file:
+        scaler = pkl.load(scaler_file)
+    with open(model_path, 'rb') as model_file:
+        model = pkl.load(model_file)
+    logger.info("Scaler and model loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load scaler or model: {str(e)}")
+    raise  # Crash on startup if files can't load (Render will show this in logs)
+
+# Threshold for prediction
+THRESHOLD = 0.5
+
+def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
+    try:
+        # Create input DataFrame
+        input_data = pd.DataFrame(
+            [[Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age]],
+            columns=['Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 
+                     'BMI', 'DiabetesPedigreeFunction', 'Age']
+        )
+
+        # Scale input data
+        input_scaled = scaler.transform(input_data)
+
+        # Get probability prediction
+        probabilities = model.predict_proba(input_scaled)[0]
+        probability_positive = probabilities[1]  # Probability of class 1 (Diabetes)
+        prediction = 1 if probability_positive >= THRESHOLD else 0
+
+        debug_info = f"Probabilities: {probabilities}, Threshold: {THRESHOLD}, Prediction: {prediction}"
+        logger.debug(debug_info)
+
+        # Return result
+        if prediction == 1:
+            result = {
+                'prediction': "You have high chances of Diabetes! Please consult a Doctor.'POSITIVE'",
+                'probability': round(probability_positive, 4),
+                'threshold': THRESHOLD,
+                'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif",
+                'debug': debug_info
+            }
+        else:
+            result = {
+                'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle.'NEGATIVE'",
+                'probability': round(probability_positive, 4),
+                'threshold': THRESHOLD,
+                'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
+                'debug': debug_info
+            }
+        return result
+
+    except Exception as e:
+        logger.error(f"Prediction function error: {str(e)}")
+        raise
 
 @app.route('/predict', methods=['POST'])
-def predict():
+def predictions():
     try:
-        data = request.json
-        # Your prediction logic
-        return {"result": "success"}
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        required_fields = ['Age', 'Glucose', 'BloodPressure', 'Insulin', 'BMI', 'SkinThickness', 'DPF']
+        for field in required_fields:
+            if field not in data or data[field] is None:
+                return jsonify({'error': f'Missing or null field: {field}'}), 400
+
+        # Convert inputs to float and validate
+        try:
+            inputs = {field: float(data[field]) for field in required_fields}
+            if any(x < 0 for x in inputs.values()):
+                return jsonify({'error': 'Input values cannot be negative'}), 400
+        except ValueError:
+            return jsonify({'error': 'All inputs must be numeric'}), 400
+
+        # Call prediction function
+        result = predict(
+            inputs['Glucose'], inputs['BloodPressure'], inputs['SkinThickness'],
+            inputs['Insulin'], inputs['BMI'], inputs['DPF'], inputs['Age']
+        )
+        return jsonify(result)
+
     except Exception as e:
-        logging.error(f"Error in /predict: {str(e)}")
-        return {"error": str(e)}, 500
+        logger.error(f"Prediction endpoint error: {str(e)}")
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+
+if __name__ == '__main__':
+    # Use Render's PORT env var if available, else default to 8000
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port, debug=True)

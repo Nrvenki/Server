@@ -1,25 +1,138 @@
 
-# # WITHOUT THESE CONDITION
+# WITHOUT THESE CONDITION
 
+
+import pickle as pkl
+import os
+import pandas as pd
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})
+
+# Load scaler and model
+script_dir = os.path.dirname(os.path.abspath(__file__))
+scaler_path = os.path.join(script_dir, 'scaler.pkl')
+model_path = os.path.join(script_dir, 'bagging.pkl')  # Ensure this is the correct model file
+
+# Check if files exist before loading
+if not os.path.exists(scaler_path) or not os.path.exists(model_path):
+    print("Error: 'scaler.pkl' or 'bagging.pkl' not found in the script directory")
+    exit(1)
+
+try:
+    with open(scaler_path, 'rb') as scaler_file:
+        scaler = pkl.load(scaler_file)
+    with open(model_path, 'rb') as model_file:
+        model = pkl.load(model_file)
+except Exception as e:
+    print(f"Error loading model or scaler: {str(e)}")
+    exit(1)
+
+# Set threshold
+THRESHOLD = 0.5
+
+def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
+    # Create input DataFrame with the 7 features
+    input_data = pd.DataFrame([[Glucose, BloodPressure, SkinThickness,
+                                Insulin, Bmi, Dpf, Age]],
+                              columns=['Glucose', 'BloodPressure', 'SkinThickness',
+                                       'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age'])
+
+    # Scale the input data
+    try:
+        input_scaled = scaler.transform(input_data)
+    except Exception as e:
+        raise ValueError(f"Scaling error: {str(e)}")
+
+    # Get probability prediction
+    try:
+        probabilities = model.predict_proba(input_scaled)[0]  # Probability for both classes
+        probability_positive = probabilities[1]  # Probability of class 1 (Diabetes)
+        prediction = 1 if probability_positive >= THRESHOLD else 0
+
+        debug_info = f"DEBUG: Probabilities: {probabilities}, Threshold: {THRESHOLD}, Prediction: {prediction}"
+        print(debug_info)
+    except Exception as e:
+        raise ValueError(f"Prediction error: {str(e)}")
+
+    # Return result
+    if prediction == 1:
+        result = {
+            'prediction': "You have high chances of Diabetes! Please consult a Doctor.'POSITIVE'",
+            'probability': round(probability_positive, 4),
+            'threshold': THRESHOLD,
+            'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif",
+            'debug': debug_info
+        }
+    else:
+        result = {
+            'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle.'NEGATIVE'",
+            'probability': round(probability_positive, 4),
+            'threshold': THRESHOLD,
+            'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
+            'debug': debug_info
+        }
+    return result
+
+@app.route('/predict', methods=['POST'])
+def predictions():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        required_fields = ['Age', 'Glucose', 'BloodPressure',
+                           'Insulin', 'BMI', 'SkinThickness', 'DPF']
+
+        for field in required_fields:
+            if field not in data or data[field] is None:
+                return jsonify({'error': f'Missing or null field: {field}'}), 400
+
+        # Convert inputs to float
+        try:
+            Age = float(data['Age'])
+            Glucose = float(data['Glucose'])
+            BloodPressure = float(data['BloodPressure'])
+            Insulin = float(data['Insulin'])
+            Bmi = float(data['BMI'])
+            SkinThickness = float(data['SkinThickness'])
+            Dpf = float(data['DPF'])
+        except ValueError:
+            return jsonify({'error': 'All inputs must be numeric'}), 400
+
+        # Ensure non-negative values where appropriate
+        if any(x < 0 for x in [Age, Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf]):
+            return jsonify({'error': 'Input values cannot be negative'}), 400
+
+        result = predict(Glucose, BloodPressure, SkinThickness,
+                         Insulin, Bmi, Dpf, Age)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8000, debug=True)
 
 # import pickle as pkl
 # import os
 # import pandas as pd
 # from flask import Flask, request, jsonify
 # from flask_cors import CORS
+# import time
 
 # app = Flask(__name__)
 # CORS(app, resources={r"/*": {"origins": "*"}})
 
-# # Load scaler and model
+# # Load scaler and model **only once** at startup
 # script_dir = os.path.dirname(os.path.abspath(__file__))
 # scaler_path = os.path.join(script_dir, 'scaler.pkl')
-# model_path = os.path.join(script_dir, 'bagging.pkl')  # Ensure this is the correct model file
+# model_path = os.path.join(script_dir, 'bagging.pkl')  
 
-# # Check if files exist before loading
 # if not os.path.exists(scaler_path) or not os.path.exists(model_path):
-#     print("Error: 'scaler.pkl' or 'bagging.pkl' not found in the script directory")
-#     exit(1)
+#     raise FileNotFoundError("Error: 'scaler.pkl' or 'bagging.pkl' not found in the script directory")
 
 # try:
 #     with open(scaler_path, 'rb') as scaler_file:
@@ -27,54 +140,71 @@
 #     with open(model_path, 'rb') as model_file:
 #         model = pkl.load(model_file)
 # except Exception as e:
-#     print(f"Error loading model or scaler: {str(e)}")
-#     exit(1)
+#     raise RuntimeError(f"Error loading model or scaler: {str(e)}")
 
 # # Set threshold
 # THRESHOLD = 0.5
 
 # def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
-#     # Create input DataFrame with the 7 features
-#     input_data = pd.DataFrame([[Glucose, BloodPressure, SkinThickness,
-#                                 Insulin, Bmi, Dpf, Age]],
+#     start_time = time.time()  # Start timer
+
+#     # Special condition: Age below 19, Glucose below 100, and BMI above 28
+#     if Age < 19 and Glucose < 100 and Bmi > 28:
+#         return {
+#             'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle.",
+#             'probability': 0.0,
+#             'threshold': THRESHOLD,
+#             'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif"
+#         }
+
+#     # If glucose is extremely high, assume high diabetes risk
+#     if Glucose > 230:
+#         return {
+#             'prediction': "You have high chances of Diabetes! Please consult a Doctor.'POSITIVE'",
+#             'probability': 1.0,
+#             'threshold': THRESHOLD,
+#             'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif"
+#         }
+
+#     # Prepare input data
+#     input_data = pd.DataFrame([[Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age]],
 #                               columns=['Glucose', 'BloodPressure', 'SkinThickness',
 #                                        'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age'])
 
-#     # Scale the input data
+#     # Scale input data
 #     try:
 #         input_scaled = scaler.transform(input_data)
 #     except Exception as e:
-#         raise ValueError(f"Scaling error: {str(e)}")
+#         return {'error': f"Scaling error: {str(e)}"}
 
-#     # Get probability prediction
+#     # Predict probability
 #     try:
-#         probabilities = model.predict_proba(input_scaled)[0]  # Probability for both classes
-#         probability_positive = probabilities[1]  # Probability of class 1 (Diabetes)
+#         probabilities = model.predict_proba(input_scaled)[0]
+#         probability_positive = probabilities[1]
 #         prediction = 1 if probability_positive >= THRESHOLD else 0
-
-#         debug_info = f"DEBUG: Probabilities: {probabilities}, Threshold: {THRESHOLD}, Prediction: {prediction}"
-#         print(debug_info)
 #     except Exception as e:
-#         raise ValueError(f"Prediction error: {str(e)}")
+#         return {'error': f"Prediction error: {str(e)}"}
+
+#     # Check execution time
+#     execution_time = time.time() - start_time
+#     if execution_time > 5:  # If prediction takes longer than 5 seconds, return an error
+#         return {'error': 'Prediction is taking longer than expected. Please try again later.'}
 
 #     # Return result
 #     if prediction == 1:
-#         result = {
+#         return {
 #             'prediction': "You have high chances of Diabetes! Please consult a Doctor.'POSITIVE'",
 #             'probability': round(probability_positive, 4),
 #             'threshold': THRESHOLD,
-#             'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif",
-#             'debug': debug_info
+#             'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif"
 #         }
 #     else:
-#         result = {
+#         return {
 #             'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle.'NEGATIVE'",
 #             'probability': round(probability_positive, 4),
 #             'threshold': THRESHOLD,
-#             'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
-#             'debug': debug_info
+#             'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif"
 #         }
-#     return result
 
 # @app.route('/predict', methods=['POST'])
 # def predictions():
@@ -83,9 +213,8 @@
 #         if not data:
 #             return jsonify({'error': 'No data provided'}), 400
 
-#         required_fields = ['Age', 'Glucose', 'BloodPressure',
-#                            'Insulin', 'BMI', 'SkinThickness', 'DPF']
-
+#         # Required fields
+#         required_fields = ['Age', 'Glucose', 'BloodPressure', 'Insulin', 'BMI', 'SkinThickness', 'DPF']
 #         for field in required_fields:
 #             if field not in data or data[field] is None:
 #                 return jsonify({'error': f'Missing or null field: {field}'}), 400
@@ -102,19 +231,19 @@
 #         except ValueError:
 #             return jsonify({'error': 'All inputs must be numeric'}), 400
 
-#         # Ensure non-negative values where appropriate
+#         # Ensure non-negative values
 #         if any(x < 0 for x in [Age, Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf]):
 #             return jsonify({'error': 'Input values cannot be negative'}), 400
 
-#         result = predict(Glucose, BloodPressure, SkinThickness,
-#                          Insulin, Bmi, Dpf, Age)
+#         # Run prediction
+#         result = predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age)
 #         return jsonify(result)
 
 #     except Exception as e:
 #         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
 # if __name__ == '__main__':
-#     app.run(host='0.0.0.0', port=8000, debug=True)
+#     app.run(host='0.0.0.0', port=8000, debug=True, threaded=True)  # Enable threading for faster responses
 
 
 # import pickle as pkl
@@ -136,48 +265,62 @@
 #     exit(1)
 
 # try:
-#     with open(scaler_path, 'rb') as scaler_file:
-#         scaler = pkl.load(scaler_file)
-#     with open(model_path, 'rb') as model_file:
-#         model = pkl.load(model_file)
+#     scaler = pkl.load(open(scaler_path, 'rb'))
+#     model = pkl.load(open(model_path, 'rb'))
 # except Exception as e:
 #     print(f"Error loading model or scaler: {str(e)}")
 #     exit(1)
 
-# THRESHOLD = 0.5
-
+# # Prediction logic
 # def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
-#     input_data = pd.DataFrame(
-#         [[Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age]],
-#         columns=['Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age']
-#     )
+#     input_data = pd.DataFrame([[Glucose, BloodPressure, SkinThickness, 
+#                                 Insulin, Bmi, Dpf, Age]],
+#                               columns=['Glucose', 'BloodPressure', 'SkinThickness',
+#                                        'Insulin', 'BMI', 'DiabetesPedigreeFunction', 'Age'])
     
 #     try:
 #         input_scaled = scaler.transform(input_data)
 #         probabilities = model.predict_proba(input_scaled)[0]
 #         probability_positive = probabilities[1]
-#         prediction = 1 if probability_positive >= THRESHOLD else 0
-
-#         debug_info = f"DEBUG: Probabilities: {probabilities}, Threshold: {THRESHOLD}, Prediction: {prediction}"
-#         print(debug_info)
-        
-#         result = {
-#             'prediction': "You have high chances of Diabetes! Please consult a Doctor.'POSITIVE'" if prediction == 1 else
-#                           "You have low chances of Diabetes. Please maintain a healthy lifestyle.'NEGATIVE'",
-#             'probability': round(probability_positive, 4),
-#             'threshold': THRESHOLD,
-#             'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif" if prediction == 1 else
-#                        "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
-#             'debug': debug_info
-#         }
-#         return result
 #     except Exception as e:
 #         raise ValueError(f"Prediction error: {str(e)}")
 
-# @app.route('/', methods=['GET'])
-# def home():
-#     return jsonify({'message': 'Welcome to the Diabetes Prediction API'}), 200
+#     # ✅ Print to console
+#     print(f"Probabilities: {probabilities} Threshold: 0.5")
 
+#     # Classification based on thresholds
+#     if probability_positive >= 0.65:
+#         status = "You have high chances of Diabetes! Please consult a doctor.'DIABETIC'."
+#         message = "You have high chances of Diabetes! Please consult a doctor."
+#         gif = "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif"
+#     elif 0.5 <= probability_positive < 0.64:
+#         status = "You might be in the prediabetes range. Keep monitoring your health.'PREDIABETIC'."
+#         message = "You might be in the prediabetes range. Keep monitoring your health."
+#         gif = "https://media.giphy.com/media/JFawGLFMCJNDi/giphy.gif"
+#     else:
+#         status = "You have low chances of Diabetes. Stay healthy!'NON-DIABETIC'."
+#         message = "You have low chances of Diabetes. Stay healthy!"
+#         gif = "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif"
+
+#     # Create response
+#     result = {
+#         'prediction': status,
+#         'message': message,
+#         'probability': round(probability_positive, 4),
+#         'thresholds': {
+#             'non_diabetic': '< 0.5',
+#             'prediabetic': '0.5 - 0.65',
+#             'diabetic': '>= 0.75'
+#         },
+#         'gif_url': gif,
+#         'debug_probabilities': [round(p, 4) for p in probabilities]
+#     }
+
+#     # Add length of result
+#     result['result_length'] = len(result)
+#     return result
+
+# # Prediction endpoint
 # @app.route('/predict', methods=['POST'])
 # def predictions():
 #     try:
@@ -210,75 +353,6 @@
 #     except Exception as e:
 #         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
+# # Run the app
 # if __name__ == '__main__':
-#     port = int(os.environ.get('PORT', 8000))  # Use Render's PORT, fallback to 8000 locally
-#     app.run(host='0.0.0.0', port=port, debug=True)
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import joblib
-import numpy as np
-import traceback
-
-app = Flask(__name__)
-CORS(app)
-
-# Load model and scaler
-scaler = joblib.load("scaler.pkl")
-model = joblib.load("bagging.pkl")
-
-THRESHOLD = 0.3
-
-@app.route("/predict", methods=["POST"])
-def predict():
-    try:
-        data = request.get_json()
-        debug_info = {"input_data": data}
-
-        # Extract only 7 features (no Pregnancies)
-        features = [
-            data["Glucose"],
-            data["BloodPressure"],
-            data["SkinThickness"],
-            data["Insulin"],
-            data["BMI"],
-            data["DiabetesPedigreeFunction"],
-            data["Age"]
-        ]
-
-        debug_info["features_before_scaling"] = features
-
-        # Scale input
-        scaled_features = scaler.transform([features])
-        debug_info["scaled_features"] = scaled_features.tolist()
-
-        # Predict
-        probability_positive = model.predict_proba(scaled_features)[0][1]
-        debug_info["probability_positive"] = probability_positive
-
-        if probability_positive >= THRESHOLD:
-            result = {
-                'prediction': "You have high chances of Diabetes! Please consult a Doctor. 'POSITIVE'",
-                'probability': round(probability_positive, 4),
-                'threshold': THRESHOLD,
-                'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif",
-                'debug': debug_info
-            }
-        else:
-            result = {
-                'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle. 'NEGATIVE'",
-                'probability': round(probability_positive, 4),
-                'threshold': THRESHOLD,
-                'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
-                'debug': debug_info
-            }
-
-        return jsonify(result)
-
-    except Exception as e:
-        print("Error during prediction:", e)
-        traceback.print_exc()
-        return jsonify({"error": f"Prediction failed: {str(e)}"}), 500
-
-if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+#     app.run(host='0.0.0.0', port=8000, debug=True)

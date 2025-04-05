@@ -174,6 +174,10 @@ def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
     except Exception as e:
         raise ValueError(f"Prediction error: {str(e)}")
 
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({'message': 'Welcome to the Diabetes Prediction API'}), 200
+
 @app.route('/predict', methods=['POST'])
 def predictions():
     try:
@@ -207,4 +211,5 @@ def predictions():
         return jsonify({'error': f'Prediction failed: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    port = int(os.environ.get('PORT', 8000))  # Use Render's PORT, fallback to 8000 locally
+    app.run(host='0.0.0.0', port=port, debug=True)

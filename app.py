@@ -117,105 +117,50 @@
 #     app.run(host='0.0.0.0', port=8000, debug=True)
 
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import numpy as np
-import joblib
+import pandas as pd
 
-app = Flask(__name__)
-CORS(app)
-
-# Load model and scaler
-model = joblib.load('bagging.pkl')
-scaler = joblib.load('scaler.pkl')
-
-# Define a threshold for classification
-THRESHOLD = 0.5
-
-def prediction(data):
-    try:
-        features = [
-            data.get("Pregnancies", 0),
-            data.get("Glucose", 0),
-            data.get("BloodPressure", 0),
-            data.get("SkinThickness", 0),
-            data.get("Insulin", 0),
-            data.get("BMI", 0.0),
-            data.get("DiabetesPedigreeFunction", 0.0),
-            data.get("Age", 0)
-        ]
-
-        # Prepare input for model
-        input_array = np.array([features])
-        input_scaled = scaler.transform(input_array)
-
-        # Get predicted probabilities
-        probabilities = model.predict_proba(input_scaled)[0]
-        probability_positive = probabilities[1]  # Probability of being diabetic
-
-        # Prediction based on threshold
-        prediction_result = int(probability_positive >= THRESHOLD)
-
-        # Debug information
-        debug_info = {
-            "input_features": features,
-            "scaled_input": input_scaled.tolist(),
-            "probabilities": probabilities.tolist()
-        }
-
-        # Chart data for frontend
-        labels = [
-            "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
-            "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
-        ]
-        chartData = {
-            "labels": labels,
-            "datasets": [
-                {
-                    "data": features
-                }
-            ]
-        }
-
-        if prediction_result == 1:
-            result = {
-                'prediction': "You have high chances of Diabetes! Please consult a Doctor. 'POSITIVE'",
-                'probability': round(probability_positive, 4),
-                'threshold': THRESHOLD,
-                'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif",
-                'chartData': chartData,
-                'debug': debug_info
-            }
-        else:
-            result = {
-                'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle. 'NEGATIVE'",
-                'probability': round(probability_positive, 4),
-                'threshold': THRESHOLD,
-                'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
-                'chartData': chartData,
-                'debug': debug_info
-            }
-
-        return result
-
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.route("/predict", methods=["POST"])
+@app.route('/predict', methods=['POST'])
 def predict():
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({"error": "No input data provided"}), 400
 
-        result = prediction(data)
-        if "error" in result:
-            return jsonify(result), 500
+        required_fields = [
+            "Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
+            "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"
+        ]
 
-        return jsonify(result)
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"Missing field: {field}"}), 400
+
+        # ✅ Convert input to DataFrame with correct feature names
+        df = pd.DataFrame([{
+            "Pregnancies": data["Pregnancies"],
+            "Glucose": data["Glucose"],
+            "BloodPressure": data["BloodPressure"],
+            "SkinThickness": data["SkinThickness"],
+            "Insulin": data["Insulin"],
+            "BMI": data["BMI"],
+            "DiabetesPedigreeFunction": data["DiabetesPedigreeFunction"],
+            "Age": data["Age"]
+        }])
+
+        # ✅ Use the DataFrame with scaler & model
+        scaled_input = scaler.transform(df)
+        prediction = model.predict(scaled_input)[0]
+
+        gif_url = (
+            "https://media.giphy.com/media/s2qXK8wAvkHTO/giphy.gif"
+            if prediction == 1 else
+            "https://media.giphy.com/media/l0MYKDrJm4Gz5h0e0/giphy.gif"
+        )
+
+        return jsonify({
+            "prediction": "Diabetic" if prediction == 1 else "Not Diabetic",
+            "gif_url": gif_url
+        })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)

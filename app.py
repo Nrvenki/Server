@@ -422,7 +422,7 @@ def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
     # Return result
     if prediction == 1:
         result = {
-            'prediction': "You have high chances of Diabetes! Please consult a Doctor.'POSITIVE'",
+            'prediction': "You have high chances of Diabetes! Please consult a Doctor.",
             'probability': round(probability_positive, 4),
             'threshold': THRESHOLD,
             'gif_url': "https://media.giphy.com/media/3o6wrebnKWmvx4ZBio/giphy.gif",
@@ -430,7 +430,7 @@ def predict(Glucose, BloodPressure, SkinThickness, Insulin, Bmi, Dpf, Age):
         }
     else:
         result = {
-            'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle.'NEGATIVE'",
+            'prediction': "You have low chances of Diabetes. Please maintain a healthy lifestyle.",
             'probability': round(probability_positive, 4),
             'threshold': THRESHOLD,
             'gif_url': "https://media.giphy.com/media/W1GG6RYUcWxoHl3jV9/giphy.gif",
